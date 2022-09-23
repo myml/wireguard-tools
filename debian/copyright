@@ -1,0 +1,10 @@
+Format: <https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/>
+Upstream-Name: wireguard-tools
+Source: <https://github.com/wireGuard/wireguard-tools>
+
+Files: *
+Copyright: GPL-2+
+
+Files: debian/*
+Copyright: 2022, wurongjie <wurongjie@wurongjie.org>
+License: GPL-2+
