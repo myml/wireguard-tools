@@ -1,0 +1,147 @@
+name: Distribution Builder
+on:
+  workflow_dispatch:
+
+jobs:
+    deepin-setup:
+      runs-on: ubuntu-latest
+      steps:
+        - name: Init
+          run: |
+            echo 'debconf debconf/frontend select Noninteractive' | sudo debconf-set-selections
+            sudo apt-get update
+            sudo apt-get install -y ca-certificates
+        - name: Cache
+          id: cache
+          uses: actions/cache@v3
+          with:
+            path: ~/deepin-base-amd64.tgz
+            key: deepin
+        - name: Create base
+          if: steps.cache.outputs.cache-hit != 'true'
+          run: |
+            sudo apt-get -y install wget p7zip
+            wget https://github.com/deepin-community/deepin-dde-repo/files/8888053/buster.z01.zip
+            wget https://github.com/deepin-community/deepin-dde-repo/files/8888055/buster.z02.zip
+            wget https://github.com/deepin-community/deepin-dde-repo/files/8888056/buster.z03.zip
+            wget https://github.com/deepin-community/deepin-dde-repo/files/8888058/buster.z04.zip
+            wget https://github.com/deepin-community/deepin-dde-repo/files/8888059/buster.z05.zip
+            wget https://github.com/deepin-community/deepin-dde-repo/files/8888061/buster.z06.zip
+            wget https://github.com/deepin-community/deepin-dde-repo/files/8888062/buster.z07.zip
+            wget https://github.com/deepin-community/deepin-dde-repo/files/8888063/buster.z08.zip
+            wget https://github.com/deepin-community/deepin-dde-repo/files/8888067/buster.zip
+            mv buster.z01.zip buster.z01
+            mv buster.z02.zip buster.z02
+            mv buster.z03.zip buster.z03
+            mv buster.z04.zip buster.z04
+            mv buster.z05.zip buster.z05
+            mv buster.z06.zip buster.z06
+            mv buster.z07.zip buster.z07
+            mv buster.z08.zip buster.z08
+            7z x buster.zip
+            mv buster.tgz ~/deepin-base-amd64.tgz
+
+    deepin-build:
+        needs: [ deepin-setup ]
+        continue-on-error: true
+        runs-on: ubuntu-latest
+        steps:
+          - uses: actions/checkout@v3
+            if: ${{ github.event.pull_request.head.sha }}
+            with:
+              ref: ${{ github.event.pull_request.head.sha }}
+          - uses: actions/checkout@v3
+            if: ${{ github.event_name == 'push' }}
+            with:
+              fetch-depth: 0
+          - name: Trusted github repository
+            if: ${{ github.event_name == 'push' }}
+            run: |
+              name=$(echo '${{ github.repository }}' | awk -F '/' '{print $2}')
+              git config --global --add safe.directory /__w/$name/$name
+          - name: fetch
+            if: ${{ github.event_name == 'push' }}
+            run: |
+              git fetch --tags --force
+          - name: Install dep
+            run: |
+              sudo apt-get update
+              sudo apt-get install reprepro pbuilder dh-make -y
+          - name: Cache
+            id: cache
+            uses: actions/cache@v3
+            with:
+              path: ~/deepin-base-amd64.tgz
+              key: deepin
+          - name: Get package version
+            id: version
+            env:
+              sha: ${{ github.event.pull_request.head.sha }}
+            run: |
+              if [ "${sha}" != "" ]
+              then
+                echo "::set-output name=VERSION::1.0.0"
+              else
+                tag=$(git describe --tags | cut -f1 -d '-') || echo
+                num=$(git describe --tags | cut -f2 -d '-') || echo
+                if [ "$num" = "$tag" ]; then
+                  num=$(git rev-list --all --count); 
+                fi
+                num=`echo $num | awk '{printf("%03d",$0)}'`
+                version=${tag:-0.0.0}+r${num}+g$(git rev-parse --short HEAD)
+                echo ${version}
+                echo "::set-output name=VERSION::${version}"
+              fi
+          - name: Build
+            env:
+              version: ${{ steps.version.outputs.VERSION }}
+            run: |
+              mkdir ~/hooks
+              cat << EOF > ~/hooks/D50Update
+              #!/bin/sh
+              #
+              # Runs apt-get update after all other repos have been added.
+              #
+              rm /etc/apt/sources.list
+              echo "deb [trusted=yes] https://deepin-community.github.io/deepin-dde-repo apricot main" >> /etc/apt/sources.list
+              echo "deb [trusted=yes] https://deepin-community.github.io/deepin-dde-deps-repo apricot main" >> /etc/apt/sources.list
+              echo "deb [trusted=yes] https://ftp.jaist.ac.jp/pub/Linux/deepin/ apricot main contrib non-free" >> /etc/apt/sources.list
+              apt-get update || true
+              apt-get install git -y
+              EOF
+              chmod +x ~/hooks/D50Update
+              cat << EOF > ~/hooks/A100remove
+              #!/bin/bash
+              if [ -f /var/lib/deepin/deepin_security_verify.whitelist ];then
+                  chattr -i /var/lib/deepin/deepin_security_verify.whitelist
+              fi
+              EOF
+              chmod +x ~/hooks/A100remove
+              PROJECT_NAME=$(dpkg-parsechangelog -S Source)
+              new_dir=$PROJECT_NAME-$version
+              mkdir $new_dir
+              rsync -a . $new_dir --exclude $new_dir
+              rm -rf $new_dir/.git
+              cd $new_dir
+                  rm -rf $new_dir
+                  dch -M -bv "${version}-1" "update"
+                  if [ -f ./debian/source/format ]; then sed -i 's/native/quilt/g' './debian/source/format'; fi
+                  dh_make --createorig -sy || true
+                  dpkg-source -b ./
+              cd ..
+              rm -rf .git
+              sudo DEB_BUILD_OPTIONS=nocheck pbuilder --build \
+                            --basetgz ~/deepin-base-amd64.tgz \
+                            --allow-untrusted \
+                            --hookdir ~/hooks \
+                            --use-network yes \
+                            --logfile `uname -m`-build.log \
+                            --aptcache "" \
+                            --buildresult . ./*.dsc
+              mkdir ~/deb
+              find -name "*.deb" | xargs -I {} cp {} ~/deb
+          - name: Upload artifact
+            uses: actions/upload-artifact@v3
+            with:
+              name: Deepin
+              path: ~/deb/*
