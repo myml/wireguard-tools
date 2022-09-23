@@ -1,0 +1,26 @@
+Source: wireguard-tools
+Section: net
+Priority: optional
+Maintainer: wurongjie <wurongjie@wurongjie-CO-PC>
+Build-Depends: debhelper (>= 11)
+Standards-Version: 4.1.3
+Homepage: https://www.wireguard.com/
+Vcs-Browser: https://github.com/wireGuard/wireguard-tools
+Vcs-Git: https://github.com/wireGuard/wireguard-tools.git
+
+Package: wireguard-tools
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: fast, modern, secure kernel VPN tunnel (userland utilities)
+ WireGuard is a novel VPN that runs inside the Linux Kernel and uses
+ state-of-the-art cryptography (the "Noise" protocol). It aims to be
+ faster, simpler, leaner, and more useful than IPSec, while avoiding
+ the massive headache. It intends to be considerably more performant
+ than OpenVPN. WireGuard is designed as a general purpose VPN for
+ running on embedded interfaces and super computers alike, fit for
+ many different circumstances. It runs over UDP.
+ .
+ This package contains command-line tools to interact with the
+ WireGuard kernel module.  Currently, it provides only a single tool:
+ .
+ wg: set and retrieve configuration of WireGuard interfaces
